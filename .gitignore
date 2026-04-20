@@ -1,0 +1,21 @@
+# Go
+api/vendor/
+api/*.exe
+api/server
+
+# Secrets (never commit)
+*.env
+.env.*
+secrets/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# k6 results
+k6-results.json

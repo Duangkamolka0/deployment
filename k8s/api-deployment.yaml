@@ -1,0 +1,113 @@
+# ============================================================
+# Go API – Deployment, Service, HorizontalPodAutoscaler
+# ============================================================
+
+# ----- Deployment -------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-api
+  namespace: default
+  labels:
+    app: go-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: go-api
+  template:
+    metadata:
+      labels:
+        app: go-api
+      annotations:
+        # Prometheus auto-scrape annotations
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 30   # time for graceful shutdown
+      containers:
+        - name: go-api
+          # TODO: replace with your Docker Hub image after CI/CD builds it
+          image: DOCKER_USERNAME/go-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DB_HOST
+              value: db-service          # K8s Service name (not IP)
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: postgres
+            - name: DB_NAME
+              value: appdb
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: GIN_MODE
+              value: release
+            - name: PORT
+              value: "8080"
+          # Liveness: restart container if /livez fails
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          # Readiness: remove from Service endpoints if /readyz fails
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+---
+# ----- Service (NodePort – accessible via minikube service) --
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-api-service
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: go-api
+  ports:
+    - port: 80
+      targetPort: 8080
+      nodePort: 30080
+
+---
+# ----- HorizontalPodAutoscaler (bonus) ----------------------
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: go-api-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: go-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60

@@ -1,0 +1,9 @@
+# Git
+.git
+.gitignore
+
+# Tests
+*_test.go
+
+# Docs
+*.md
