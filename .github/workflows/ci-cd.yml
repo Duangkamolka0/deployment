@@ -70,11 +70,16 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Apply Kubernetes manifests
+        run: kubectl apply -f k8s/api-deployment.yaml
+
       - name: Update image in deployment
         run: |
           kubectl set image deployment/go-api \
-            go-api=${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --record
+            go-api=${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       - name: Wait for rollout
         run: kubectl rollout status deployment/go-api --timeout=120s
