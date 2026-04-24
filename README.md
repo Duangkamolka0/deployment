@@ -394,13 +394,65 @@ kubectl port-forward svc/grafana-service 3000:3000 &
 # Login: admin / admin123
 ```
 
-**Configure a Dashboard:**
+**Import Dashboards via API (recommended for Cloud Shell):**
 
-1. **Connections → Data Sources** → Verify Prometheus URL = `http://prometheus-service:9090`
-2. **Dashboards → New → Import** → Enter ID `12708` (Go Metrics Dashboard) or `1860` (Node Exporter)
-3. Add custom panels:
-   * Query: `rate(http_requests_total[1m])` → Requests per second
-   * Query: `histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[1m]))` → P95 latency
+> The Grafana web UI may block import/save actions with "origin not allowed" when accessed through Cloud Shell proxy. Use the API instead:
+
+```bash
+# --- Dashboard 1860 (Node Exporter Full) ---
+curl -s https://grafana.com/api/dashboards/1860/revisions/latest/download -o /tmp/dashboard-1860.json
+
+jq -n --slurpfile dash /tmp/dashboard-1860.json '{
+  dashboard: $dash[0],
+  overwrite: true,
+  inputs: [{ name: "DS_PROMETHEUS", type: "datasource", pluginId: "prometheus", value: "Prometheus" }]
+}' > /tmp/import-1860.json
+
+curl -X POST http://localhost:3000/api/dashboards/import \
+  -H "Content-Type: application/json" \
+  --data-binary @/tmp/import-1860.json
+```
+
+**Add custom panels** (Requests per second + P95 Latency):
+
+```bash
+curl -X POST http://localhost:3000/api/dashboards/db \
+  -H "Content-Type: application/json" \
+  --data-binary '{
+  "dashboard": {
+    "title": "Go API Metrics",
+    "panels": [
+      {
+        "title": "Requests per second",
+        "type": "timeseries",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "targets": [{
+          "expr": "rate(http_requests_total[1m])",
+          "legendFormat": "{{method}} {{path}} {{status}}",
+          "refId": "A"
+        }],
+        "datasource": { "type": "prometheus", "uid": "" },
+        "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+      },
+      {
+        "title": "P95 Latency",
+        "type": "timeseries",
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+        "targets": [{
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[1m]))",
+          "legendFormat": "{{method}} {{path}}",
+          "refId": "A"
+        }],
+        "datasource": { "type": "prometheus", "uid": "" },
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      }
+    ],
+    "schemaVersion": 39,
+    "version": 0
+  },
+  "overwrite": true
+}'
+```
 
 ### 5.3 Run k6 Load Test
 
