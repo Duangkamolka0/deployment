@@ -3,19 +3,17 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
 
 env:
   IMAGE_NAME: go-api
 
 jobs:
-  # ----------------------------------------------------------------
-  # Job 1: Build & Test
-  # ----------------------------------------------------------------
+  # ------------------------------------------------------------
+  # 1) Build & Test
+  # ------------------------------------------------------------
   build-and-test:
     name: Build & Test
-    runs-on: self-hosted          # Self-hosted runner บน Cloud Shell
+    runs-on: self-hosted
 
     steps:
       - name: Checkout code
@@ -32,18 +30,21 @@ jobs:
         working-directory: api
         run: go test -mod=vendor ./... -v -race
 
-  # ----------------------------------------------------------------
-  # Job 2: Build & Push Docker Image
-  # ----------------------------------------------------------------
+  # ------------------------------------------------------------
+  # 2) Docker Build & Push
+  # ------------------------------------------------------------
   docker-build-push:
     name: Docker Build & Push
     needs: build-and-test
     runs-on: self-hosted
-    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # 🔍 DEBUG (เช็คว่า secret มาจริงไหม)
+      - name: Debug username
+        run: echo "USERNAME=${{ secrets.DOCKER_USERNAME }}"
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -57,35 +58,35 @@ jobs:
           context: api
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+            ${{ secrets.DOCKER_USERNAME }}/go-api:${{ github.sha }}
+            ${{ secrets.DOCKER_USERNAME }}/go-api:latest
 
-  # ----------------------------------------------------------------
-  # Job 3: Deploy to Minikube (via self-hosted runner)
-  # ----------------------------------------------------------------
+  # ------------------------------------------------------------
+  # 3) Deploy to Minikube
+  # ------------------------------------------------------------
   deploy:
     name: Deploy to Minikube
     needs: docker-build-push
     runs-on: self-hosted
-    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ❗ แก้ path ตรงนี้ให้ตรงกับโปรเจคจริง
       - name: Apply Kubernetes manifests
         run: kubectl apply -f k8s/api-deployment.yaml
 
-      - name: Update image in deployment
+      - name: Update image
         run: |
           kubectl set image deployment/go-api \
-            go-api=${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          go-api=${{ secrets.DOCKER_USERNAME }}/go-api:${{ github.sha }}
 
       - name: Wait for rollout
         run: kubectl rollout status deployment/go-api --timeout=120s
 
-      - name: Smoke test (health check)
+      - name: Smoke test
         run: |
           NODE_IP=$(minikube ip)
           curl --fail --retry 5 --retry-delay 3 \
-            "http://${NODE_IP}:30080/readyz"
+          "http://${NODE_IP}:30080/readyz"
